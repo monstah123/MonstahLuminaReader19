@@ -1,0 +1,8 @@
+{
+  "name": "MonstahLuminaReader",
+  "description": "Scan book covers to instantly identify them and listen to an AI-narrated summary. and entire book chapters breakdowns and get a full scope of what the book is about",
+  "requestFramePermissions": [
+    "camera",
+    "microphone"
+  ]
+}
