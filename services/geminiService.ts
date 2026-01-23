@@ -7,8 +7,10 @@ if (!import.meta.env.VITE_GEMINI_API_KEY) {
 }
 
 // 2. Access the key using the VITE syntax (import.meta.env)
-const ai = new GoogleGenAI({ apiKey: import.meta.env.VITE_GEMINI_API_KEY });
-
+// Keep this line ONLY (with quotes):
+const ai = new GoogleGenAI({ 
+  apiKey: import.meta.env.VITE_GEMINI_API_KEY 
+});
 
 const BOOK_SCHEMA = {
   type: Type.OBJECT,
