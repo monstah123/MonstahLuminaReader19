@@ -82,32 +82,17 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   const [showSettings, setShowSettings] = useState(false);
   const [showLanguage, setShowLanguage] = useState(false);
 
-  const audioContextRef = useRef<AudioContext | null>(null);
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
-  const mediaSourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
 
-  // Initialize Audio Element and Context ONCE
+  // Initialize Audio Element ONCE
   useEffect(() => {
     if (!audioElementRef.current) {
         const audio = new Audio();
         audio.setAttribute('playsinline', 'true');
         audio.preload = 'auto';
         audioElementRef.current = audio;
-
-        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({
-          sampleRate: 24000
-        });
-        audioContextRef.current = ctx;
-
-        analyserRef.current = ctx.createAnalyser();
-        analyserRef.current.fftSize = 128;
-
-        mediaSourceNodeRef.current = ctx.createMediaElementSource(audio);
-        mediaSourceNodeRef.current.connect(analyserRef.current);
-        analyserRef.current.connect(ctx.destination);
     }
 
     return () => {
@@ -122,10 +107,6 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
           URL.revokeObjectURL(objectUrlRef.current);
           objectUrlRef.current = null;
       }
-      if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
-        audioContextRef.current.close().catch(e => console.warn("Error closing AudioContext:", e));
-      }
-      audioContextRef.current = null;
     };
   }, []);
 
@@ -213,9 +194,6 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
 
             // Auto Play logic
             if (autoStart) {
-                if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
-                    await audioContextRef.current.resume();
-                }
                 playAudio();
             }
 
@@ -262,10 +240,6 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
 
   const playAudio = async () => {
     if (!audioElementRef.current) return;
-
-    if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
-      await audioContextRef.current.resume();
-    }
 
     try {
         await audioElementRef.current.play();
@@ -533,7 +507,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
 
         {/* Visualizer Row */}
         <div className="w-full h-[40px] flex items-center justify-center overflow-hidden rounded-lg bg-black/20 mt-2 relative">
-             <Visualizer analyser={analyserRef.current} isPlaying={isPlaying} />
+             <Visualizer analyser={null} isPlaying={isPlaying} />
              {isLoading && (
                  <div className="absolute inset-0 flex items-center justify-center bg-black/40 backdrop-blur-sm z-10 gap-2">
                     <CircularProgress progress={loadingProgress} size={24} className="text-brand-gold" trackColor="text-white/20" />
