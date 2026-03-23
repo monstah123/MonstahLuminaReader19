@@ -84,7 +84,6 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
 
   const audioElementRef = useRef<HTMLAudioElement | null>(null);
   const objectUrlRef = useRef<string | null>(null);
-  const animationFrameRef = useRef<number | null>(null);
 
   // Initialize Audio Element ONCE
   useEffect(() => {
@@ -97,7 +96,6 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
 
     return () => {
       // Clean up on unmount
-      stopAudio();
       if (audioElementRef.current) {
           audioElementRef.current.pause();
           audioElementRef.current.src = "";
@@ -109,6 +107,44 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
       }
     };
   }, []);
+
+  // Manage Event Listeners
+  useEffect(() => {
+    const audio = audioElementRef.current;
+    if (!audio) return;
+    
+    const handleTimeUpdate = () => {
+       if (isDragging || !isPlayingRef.current) return;
+       const time = audio.currentTime;
+       const duration = audio.duration || 1;
+       
+       const percent = Math.min((time / duration) * 100, 100);
+       setProgress(percent);
+       setCurrentTimeDisplay(formatTime(time));
+       
+       if (onProgress) {
+           onProgress(percent / 100);
+       }
+    };
+
+    const handleEnded = () => {
+       setIsPlaying(false);
+       isPlayingRef.current = false;
+       const duration = audio.duration || 1;
+       setProgress(100);
+       setCurrentTimeDisplay(formatTime(duration));
+       if (onProgress) onProgress(1);
+       if (onFinished) onFinished();
+    };
+
+    audio.addEventListener('timeupdate', handleTimeUpdate);
+    audio.addEventListener('ended', handleEnded);
+
+    return () => {
+      audio.removeEventListener('timeupdate', handleTimeUpdate);
+      audio.removeEventListener('ended', handleEnded);
+    };
+  }, [isDragging, onProgress, onFinished]);
 
   // Update Media Session
   useEffect(() => {
@@ -246,9 +282,6 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
         setIsPlaying(true);
         isPlayingRef.current = true;
         
-        if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-        updateProgress();
-
         if ('mediaSession' in navigator) {
             navigator.mediaSession.playbackState = "playing";
         }
@@ -263,7 +296,6 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
       
       setIsPlaying(false);
       isPlayingRef.current = false;
-      if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
 
       if ('mediaSession' in navigator) {
         navigator.mediaSession.playbackState = "paused";
@@ -278,41 +310,8 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
     }
     setIsPlaying(false);
     isPlayingRef.current = false;
-    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
     setProgress(0);
     setCurrentTimeDisplay("00:00");
-  };
-
-  const updateProgress = () => {
-    if (isDragging) {
-        animationFrameRef.current = requestAnimationFrame(updateProgress);
-        return;
-    }
-
-    if (!audioElementRef.current || !isPlayingRef.current) return;
-
-    const time = audioElementRef.current.currentTime;
-    const duration = audioElementRef.current.duration || 1;
-    
-    if (audioElementRef.current.ended || time >= duration) {
-        setIsPlaying(false);
-        isPlayingRef.current = false;
-        setProgress(100);
-        setCurrentTimeDisplay(formatTime(duration));
-        if (onProgress) onProgress(1);
-        if (onFinished) onFinished();
-        return;
-    }
-
-    const percent = Math.min((time / duration) * 100, 100);
-    setProgress(percent);
-    setCurrentTimeDisplay(formatTime(time));
-    
-    if (onProgress) {
-        onProgress(percent / 100);
-    }
-
-    animationFrameRef.current = requestAnimationFrame(updateProgress);
   };
 
   const togglePlay = () => {
