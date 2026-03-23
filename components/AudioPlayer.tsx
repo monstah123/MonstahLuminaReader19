@@ -1,6 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Play, Pause, StopCircle, Gauge, Bookmark as BookmarkIcon, HardDrive, Settings, Volume2, Volume1, VolumeX, ChevronDown, ChevronUp, Maximize2, Minimize2, Globe, ToggleRight, ToggleLeft, Loader2 } from 'lucide-react';
-import { decodeBase64, decodeAudioData, formatTime, saveFile, createWavBlob } from '../utils/audioUtils';
+import { decodeBase64, formatTime, saveFile, createWavBlob } from '../utils/audioUtils';
 import { Visualizer } from './Visualizer';
 import { VoiceName, Language } from '../types';
 import { CircularProgress } from './CircularProgress';
@@ -83,36 +83,45 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   const [showLanguage, setShowLanguage] = useState(false);
 
   const audioContextRef = useRef<AudioContext | null>(null);
-  const sourceRef = useRef<AudioBufferSourceNode | null>(null);
-  const gainNodeRef = useRef<GainNode | null>(null);
+  const audioElementRef = useRef<HTMLAudioElement | null>(null);
+  const objectUrlRef = useRef<string | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
-  const bufferRef = useRef<AudioBuffer | null>(null);
+  const mediaSourceNodeRef = useRef<MediaElementAudioSourceNode | null>(null);
   const animationFrameRef = useRef<number | null>(null);
 
-  const accumulatedTimeRef = useRef<number>(0);
-  const lastAnchorTimeRef = useRef<number>(0);
-
-  // Initialize Audio Context ONCE
+  // Initialize Audio Element and Context ONCE
   useEffect(() => {
-    if (!audioContextRef.current) {
-        audioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({
+    if (!audioElementRef.current) {
+        const audio = new Audio();
+        audio.setAttribute('playsinline', 'true');
+        audio.preload = 'auto';
+        audioElementRef.current = audio;
+
+        const ctx = new (window.AudioContext || (window as any).webkitAudioContext)({
           sampleRate: 24000
         });
-        
-        // Create Static Graph: Gain -> Analyser -> Destination
-        gainNodeRef.current = audioContextRef.current.createGain();
-        gainNodeRef.current.gain.value = volume;
+        audioContextRef.current = ctx;
 
-        analyserRef.current = audioContextRef.current.createAnalyser();
+        analyserRef.current = ctx.createAnalyser();
         analyserRef.current.fftSize = 128;
 
-        gainNodeRef.current.connect(analyserRef.current);
-        analyserRef.current.connect(audioContextRef.current.destination);
+        mediaSourceNodeRef.current = ctx.createMediaElementSource(audio);
+        mediaSourceNodeRef.current.connect(analyserRef.current);
+        analyserRef.current.connect(ctx.destination);
     }
 
     return () => {
       // Clean up on unmount
       stopAudio();
+      if (audioElementRef.current) {
+          audioElementRef.current.pause();
+          audioElementRef.current.src = "";
+          audioElementRef.current = null;
+      }
+      if (objectUrlRef.current) {
+          URL.revokeObjectURL(objectUrlRef.current);
+          objectUrlRef.current = null;
+      }
       if (audioContextRef.current && audioContextRef.current.state !== 'closed') {
         audioContextRef.current.close().catch(e => console.warn("Error closing AudioContext:", e));
       }
@@ -122,7 +131,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
 
   // Update Media Session
   useEffect(() => {
-    if ('mediaSession' in navigator && bufferRef.current) {
+    if ('mediaSession' in navigator && base64Audio) {
       navigator.mediaSession.metadata = new MediaMetadata({
         title: chapterTitle,
         artist: "AI Narrator",
@@ -139,12 +148,12 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
         }
       });
     }
-  }, [chapterTitle, bookTitle, coverImage, isPlaying]);
+  }, [chapterTitle, bookTitle, coverImage, isPlaying, base64Audio]);
 
-  // Update gain when volume changes
+  // Update volume
   useEffect(() => {
-    if (gainNodeRef.current) {
-      gainNodeRef.current.gain.value = volume;
+    if (audioElementRef.current) {
+      audioElementRef.current.volume = volume;
     }
   }, [volume]);
 
@@ -162,32 +171,50 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
         stopAudio();
         
         try {
-            const ctx = audioContextRef.current;
-            if (!ctx) return;
+            if (!audioElementRef.current) return;
 
             const bytes = decodeBase64(base64Audio);
-            const buffer = await decodeAudioData(bytes, ctx, 24000);
+            const blob = createWavBlob(bytes, 24000);
             
-            bufferRef.current = buffer;
+            if (objectUrlRef.current) {
+                URL.revokeObjectURL(objectUrlRef.current);
+            }
+            const url = URL.createObjectURL(blob);
+            objectUrlRef.current = url;
             
+            audioElementRef.current.src = url;
+            audioElementRef.current.playbackRate = rateRef.current;
+            audioElementRef.current.volume = volume;
+            
+            // Wait for metadata to load to get duration
+            await new Promise<void>((resolve) => {
+                const handler = () => {
+                    audioElementRef.current?.removeEventListener('loadedmetadata', handler);
+                    resolve();
+                };
+                audioElementRef.current?.addEventListener('loadedmetadata', handler);
+                setTimeout(() => resolve(), 2000); // safety fallback
+            });
+
             // Set initial state
-            if (initialStartTime > 0) {
-                accumulatedTimeRef.current = Math.min(initialStartTime, buffer.duration);
-                const percent = (accumulatedTimeRef.current / buffer.duration) * 100;
+            if (initialStartTime > 0 && audioElementRef.current.duration) {
+                audioElementRef.current.currentTime = Math.min(initialStartTime, audioElementRef.current.duration);
+                const percent = (audioElementRef.current.currentTime / audioElementRef.current.duration) * 100;
                 setProgress(percent);
-                setCurrentTimeDisplay(formatTime(accumulatedTimeRef.current));
+                setCurrentTimeDisplay(formatTime(audioElementRef.current.currentTime));
             } else {
-                accumulatedTimeRef.current = 0;
+                audioElementRef.current.currentTime = 0;
                 setProgress(0);
                 setCurrentTimeDisplay("00:00");
             }
-            if (onProgress) onProgress(accumulatedTimeRef.current / buffer.duration);
+            if (onProgress && audioElementRef.current.duration) {
+                onProgress(audioElementRef.current.currentTime / audioElementRef.current.duration);
+            }
 
             // Auto Play logic
             if (autoStart) {
-                // Ensure context is running
-                if (ctx.state === 'suspended') {
-                    await ctx.resume();
+                if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
+                    await audioContextRef.current.resume();
                 }
                 playAudio();
             }
@@ -201,50 +228,30 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   }, [base64Audio, isLoading]); // Re-run when audio changes or loading finishes
 
   useEffect(() => {
-    if (seekTrigger && bufferRef.current) {
+    if (seekTrigger) {
       seekTo(seekTrigger.time);
     }
   }, [seekTrigger]);
 
   const seekTo = (time: number) => {
-    if (!bufferRef.current) return;
+    if (!audioElementRef.current || !audioElementRef.current.duration) return;
     
-    const safeTime = Math.max(0, Math.min(time, bufferRef.current.duration));
+    const safeTime = Math.max(0, Math.min(time, audioElementRef.current.duration));
+    audioElementRef.current.currentTime = safeTime;
     
-    const wasPlaying = isPlayingRef.current;
-    if (sourceRef.current) {
-      try { sourceRef.current.stop(); } catch(e) { /* ignore */ }
-    }
-
-    accumulatedTimeRef.current = safeTime;
-    
-    const percent = (safeTime / bufferRef.current.duration) * 100;
+    const percent = (safeTime / audioElementRef.current.duration) * 100;
     if (onProgress) onProgress(percent / 100);
 
-    if (wasPlaying) {
-      playAudio();
-    } else {
-      setProgress(percent);
-      setCurrentTimeDisplay(formatTime(safeTime));
-    }
+    setProgress(percent);
+    setCurrentTimeDisplay(formatTime(safeTime));
   };
 
   const setPlaybackRate = (rate: number) => {
     setPlaybackRateState(rate);
-    
-    if (isPlaying && audioContextRef.current) {
-      const now = audioContextRef.current.currentTime;
-      const deltaRealTime = now - lastAnchorTimeRef.current;
-      const deltaBufferTime = deltaRealTime * rateRef.current;
-      
-      accumulatedTimeRef.current += deltaBufferTime;
-      lastAnchorTimeRef.current = now;
-
-      if (sourceRef.current) {
-        sourceRef.current.playbackRate.value = rate;
-      }
-    }
     rateRef.current = rate;
+    if (audioElementRef.current) {
+      audioElementRef.current.playbackRate = rate;
+    }
   };
 
   const cycleSpeed = () => {
@@ -254,58 +261,31 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   };
 
   const playAudio = async () => {
-    if (!audioContextRef.current || !bufferRef.current) return;
+    if (!audioElementRef.current) return;
 
-    if (audioContextRef.current.state === 'suspended') {
+    if (audioContextRef.current && audioContextRef.current.state === 'suspended') {
       await audioContextRef.current.resume();
     }
 
-    // Stop existing to prevent overlap
-    if (sourceRef.current) {
-        try { 
-            sourceRef.current.stop(); 
-            sourceRef.current.disconnect();
-        } catch(e) { /* ignore */ }
-        sourceRef.current = null;
-    }
+    try {
+        await audioElementRef.current.play();
+        setIsPlaying(true);
+        isPlayingRef.current = true;
+        
+        if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+        updateProgress();
 
-    const source = audioContextRef.current.createBufferSource();
-    source.buffer = bufferRef.current;
-    source.playbackRate.value = rateRef.current;
-
-    if (gainNodeRef.current) {
-       source.connect(gainNodeRef.current);
-    } else {
-       source.connect(audioContextRef.current.destination);
-    }
-    
-    sourceRef.current = source;
-    
-    const offset = accumulatedTimeRef.current;
-    source.start(0, offset);
-    
-    lastAnchorTimeRef.current = audioContextRef.current.currentTime;
-    
-    setIsPlaying(true);
-    isPlayingRef.current = true;
-    
-    if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
-    updateProgress();
-
-    if ('mediaSession' in navigator) {
-        navigator.mediaSession.playbackState = "playing";
+        if ('mediaSession' in navigator) {
+            navigator.mediaSession.playbackState = "playing";
+        }
+    } catch (e) {
+        console.error("Playback failed:", e);
     }
   };
 
   const pauseAudio = () => {
-    if (sourceRef.current && isPlayingRef.current && audioContextRef.current) {
-      try { sourceRef.current.stop(); } catch(e) { /* ignore */ }
-      
-      const now = audioContextRef.current.currentTime;
-      const deltaRealTime = now - lastAnchorTimeRef.current;
-      const deltaBufferTime = deltaRealTime * rateRef.current;
-      
-      accumulatedTimeRef.current += deltaBufferTime;
+    if (audioElementRef.current && isPlayingRef.current) {
+      audioElementRef.current.pause();
       
       setIsPlaying(false);
       isPlayingRef.current = false;
@@ -318,13 +298,15 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   };
 
   const stopAudio = () => {
-    if (sourceRef.current) {
-      try { sourceRef.current.stop(); } catch(e) { /* ignore */ }
-      sourceRef.current = null;
+    if (audioElementRef.current) {
+      audioElementRef.current.pause();
+      audioElementRef.current.currentTime = 0;
     }
     setIsPlaying(false);
     isPlayingRef.current = false;
     if (animationFrameRef.current) cancelAnimationFrame(animationFrameRef.current);
+    setProgress(0);
+    setCurrentTimeDisplay("00:00");
   };
 
   const updateProgress = () => {
@@ -333,18 +315,14 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
         return;
     }
 
-    if (!audioContextRef.current || !bufferRef.current || !isPlayingRef.current) return;
+    if (!audioElementRef.current || !isPlayingRef.current) return;
 
-    const now = audioContextRef.current.currentTime;
-    const deltaRealTime = now - lastAnchorTimeRef.current;
-    const currentBufferTime = accumulatedTimeRef.current + (deltaRealTime * rateRef.current);
+    const time = audioElementRef.current.currentTime;
+    const duration = audioElementRef.current.duration || 1;
     
-    const duration = bufferRef.current.duration;
-    
-    if (currentBufferTime >= duration) {
+    if (audioElementRef.current.ended || time >= duration) {
         setIsPlaying(false);
         isPlayingRef.current = false;
-        accumulatedTimeRef.current = 0;
         setProgress(100);
         setCurrentTimeDisplay(formatTime(duration));
         if (onProgress) onProgress(1);
@@ -352,9 +330,9 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
         return;
     }
 
-    const percent = Math.min((currentBufferTime / duration) * 100, 100);
+    const percent = Math.min((time / duration) * 100, 100);
     setProgress(percent);
-    setCurrentTimeDisplay(formatTime(currentBufferTime));
+    setCurrentTimeDisplay(formatTime(time));
     
     if (onProgress) {
         onProgress(percent / 100);
@@ -369,14 +347,8 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
   };
 
   const handleBookmarkClick = () => {
-    if (onBookmark && audioContextRef.current) {
-      let currentBufferTime = accumulatedTimeRef.current;
-      if (isPlayingRef.current) {
-          const now = audioContextRef.current.currentTime;
-          const deltaRealTime = now - lastAnchorTimeRef.current;
-          currentBufferTime += (deltaRealTime * rateRef.current);
-      }
-      onBookmark(currentBufferTime);
+    if (onBookmark && audioElementRef.current) {
+      onBookmark(audioElementRef.current.currentTime);
     }
   };
 
@@ -396,18 +368,18 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
       setIsDragging(true);
       setDragProgress(val);
       
-      if (bufferRef.current) {
-          const time = (val / 100) * bufferRef.current.duration;
+      if (audioElementRef.current && audioElementRef.current.duration) {
+          const time = (val / 100) * audioElementRef.current.duration;
           setCurrentTimeDisplay(formatTime(time));
           if (onProgress) onProgress(val / 100);
       }
   };
 
   const handleRangeCommit = (e: React.MouseEvent<HTMLInputElement> | React.TouchEvent<HTMLInputElement>) => {
-      if (!bufferRef.current) return;
+      if (!audioElementRef.current || !audioElementRef.current.duration) return;
       const target = e.currentTarget as HTMLInputElement;
       const val = parseFloat(target.value);
-      const time = (val / 100) * bufferRef.current.duration;
+      const time = (val / 100) * audioElementRef.current.duration;
       
       seekTo(time);
       setIsDragging(false);
