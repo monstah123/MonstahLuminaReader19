@@ -416,7 +416,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
       
       {/* Settings Modal */}
       {showSettings && (
-        <div className="absolute bottom-full right-0 mb-2 w-72 bg-brand-paper dark:bg-gray-800 rounded-xl shadow-2xl border border-brand-gold/30 p-4 animate-fade-in z-50">
+        <div className="absolute bottom-full right-0 mb-2 w-[calc(100vw-3rem)] sm:w-72 bg-brand-paper dark:bg-gray-800 rounded-xl shadow-2xl border border-brand-gold/30 p-4 animate-fade-in z-50">
            <div className="flex justify-between items-center mb-4 border-b border-gray-200 dark:border-gray-700 pb-2">
               <h4 className="font-bold text-brand-dark dark:text-white text-sm flex items-center gap-2">
                 <Settings size={16} /> Player Settings
@@ -470,7 +470,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
 
       {/* Language Modal */}
       {showLanguage && (
-        <div className="absolute bottom-full right-12 mb-2 w-48 bg-brand-paper dark:bg-gray-800 rounded-xl shadow-2xl border border-brand-gold/30 p-4 animate-fade-in z-50">
+        <div className="absolute bottom-full right-0 sm:right-12 mb-2 w-[calc(100vw-3rem)] sm:w-48 bg-brand-paper dark:bg-gray-800 rounded-xl shadow-2xl border border-brand-gold/30 p-4 animate-fade-in z-50">
            <div className="flex justify-between items-center mb-3 border-b border-gray-200 dark:border-gray-700 pb-2">
               <h4 className="font-bold text-brand-dark dark:text-white text-sm flex items-center gap-2">
                 <Globe size={16} /> Language
@@ -612,7 +612,7 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
                 {playbackRate}x
               </button>
 
-              <div className="relative">
+              <div className="relative hidden sm:block">
                 <button
                   onClick={() => setShowVolume(!showVolume)}
                   className={`p-2 transition rounded-full hover:bg-white/10 ${showVolume ? 'text-brand-gold' : 'text-white/50 hover:text-brand-gold'}`}
