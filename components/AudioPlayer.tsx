@@ -184,9 +184,6 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
     }
 
     const loadAndPlay = async () => {
-        // Stop current
-        stopAudio();
-        
         try {
             if (!audioElementRef.current) return;
 
@@ -278,15 +275,25 @@ export const AudioPlayer: React.FC<AudioPlayerProps> = ({
     if (!audioElementRef.current) return;
 
     try {
-        await audioElementRef.current.play();
-        setIsPlaying(true);
-        isPlayingRef.current = true;
-        
-        if ('mediaSession' in navigator) {
-            navigator.mediaSession.playbackState = "playing";
+        const playPromise = audioElementRef.current.play();
+        if (playPromise !== undefined) {
+           playPromise.then(() => {
+              setIsPlaying(true);
+              isPlayingRef.current = true;
+              
+              if ('mediaSession' in navigator) {
+                  navigator.mediaSession.playbackState = "playing";
+              }
+           }).catch(error => {
+              console.error("Playback failed (likely background/gesture restriction):", error);
+              // Handle gracefully without crashing
+           });
+        } else {
+           setIsPlaying(true);
+           isPlayingRef.current = true;
         }
     } catch (e) {
-        console.error("Playback failed:", e);
+        console.error("Synchronous playback exception:", e);
     }
   };
 
