@@ -61,7 +61,7 @@ const parseJSONResponse = (text: string): any => {
 export const identifyBook = async (base64Image: string): Promise<BookInfo> => {
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.1-flash-lite',
       contents: {
         parts: [
           {
@@ -93,7 +93,7 @@ export const identifyBook = async (base64Image: string): Promise<BookInfo> => {
 export const searchBook = async (query: string): Promise<BookInfo> => {
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.1-flash-lite',
       contents: {
         parts: [
           {
@@ -119,7 +119,7 @@ export const searchBook = async (query: string): Promise<BookInfo> => {
 export const getChapterContent = async (title: string, author: string, chapterName: string, language: string = 'English'): Promise<string> => {
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.1-flash-lite',
       contents: {
         parts: [
           {
@@ -193,7 +193,7 @@ export const generateBookNarration = async (text: string, voiceName: string = 'K
 export const findBookSources = async (title: string, author: string): Promise<SearchResult> => {
   try {
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.1-flash-lite',
       contents: {
         parts: [
           {
@@ -264,7 +264,7 @@ export const chatWithBook = async (
     });
 
     const response = await ai.models.generateContent({
-      model: 'gemini-2.5-flash',
+      model: 'gemini-3.1-flash-lite',
       contents: contents,
     });
 
